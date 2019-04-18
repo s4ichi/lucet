@@ -136,7 +136,22 @@ impl<'a> Compiler<'a> {
         write_startfunc_data(&mut self.clif_module, &self.decls)?;
         write_table_data(&mut self.clif_module, &self.decls)?;
 
-        let obj = ObjectFile::new(self.clif_module.finish()).context(LucetcErrorKind::Output)?;
+        use lucet_module_data::FunctionSpec;
+        let function_manifest: Vec<(String, FunctionSpec)> = self
+            .clif_module
+            .declared_functions()
+            .filter_map(|f| {
+                f.compiled.as_ref().map(|compiled| {
+                    (
+                        f.decl.name.to_owned(), // this copy is only necessary because `clif_module` is moved in `finish, below`
+                        FunctionSpec::new(0, compiled.code_length(), 0, 0),
+                    )
+                })
+            })
+            .collect();
+
+        let obj = ObjectFile::new(self.clif_module.finish(), function_manifest)
+            .context(LucetcErrorKind::Output)?;
         Ok(obj)
     }
 
