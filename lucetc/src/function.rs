@@ -267,6 +267,26 @@ impl<'a> FuncEnvironment for FuncInfo<'a> {
     }
 }
 
+fn write_relocated_slice(
+    obj: &mut Artifact,
+    buf: &mut Cursor<Vec<u8>>,
+    from: &str,
+    to: &str,
+    len: u64,
+) -> Result<(), Error> {
+    obj.link(Link {
+        from, // the data at `from` + `at` (eg. manifest_sym)
+        to,   // is a reference to `to`    (eg. fn_name)
+        at: buf.position(),
+    })
+    .context(format!("linking {} into function manifest", to))?;
+
+    buf.write_u64::<LittleEndian>(0).unwrap();
+    buf.write_u64::<LittleEndian>(len).unwrap();
+
+    Ok(())
+}
+
 ///
 /// Writes a manifest of functions, with relocations, to the artifact.
 ///
@@ -303,16 +323,17 @@ pub fn write_function_manifest(
         functions.len() * size_of::<FunctionSpec>(),
     ));
 
-    /*
-     * !! This is brittle and should be suspect !!
-     *
-     * `.link()` is declare a relocation in the artifact
-     * relocating the bytes that HAPPEN to be the "addr"
-     * part of a FunctionSpec to point to the right function
-     *
-     * If `addr` moves in `FunctionSpec`, this will break!
-     */
     for (fn_name, fn_spec) in functions.iter() {
+        /*
+         * This has implicit knowledge of the layout of `FunctionSpec`!
+         *
+         * Each iteraction writes out bytes with relocations that will
+         * result in data forming a valid FunctionSpec when this is loaded.
+         *
+         * Because the addresses don't exist until relocations are applied
+         * when the artifact is loaded, we can't just populate the fields
+         * and transmute, unfortunately.
+         */
         // Writes a (ptr, len) pair with relocation for code
         write_relocated_slice(
             obj,
@@ -329,26 +350,6 @@ pub fn write_function_manifest(
             &trap_sym_for_func(fn_name),
             fn_spec.traps_len() as u64,
         )?;
-    }
-
-    fn write_relocated_slice(
-        obj: &mut Artifact,
-        buf: &mut Cursor<Vec<u8>>,
-        from: &str,
-        to: &str,
-        len: u64,
-    ) -> Result<(), Error> {
-        obj.link(Link {
-            from, // the data at `from` + `at` (eg. manifest_sym)
-            to,   // is a reference to `to`    (eg. fn_name)
-            at: buf.position(),
-        })
-        .context(format!("linking {} into function manifest", to))?;
-
-        buf.write_u64::<LittleEndian>(0).unwrap();
-        buf.write_u64::<LittleEndian>(len).unwrap();
-
-        Ok(())
     }
 
     obj.define(&manifest_sym, manifest_buf.into_inner())

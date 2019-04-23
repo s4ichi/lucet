@@ -2,6 +2,14 @@ use crate::traps::{TrapManifest, TrapSite};
 
 use std::slice::from_raw_parts;
 
+// The layout of this struct is very tightly coupled to lucetc's `write_function_manifest`!
+//
+// Specifically, `write_function_manifest` sets up relocations on `code_addr` and `traps_addr`.
+// It does not explicitly serialize a correctly formed `FunctionSpec`, because addresses
+// for these fields do not exist until the object is loaded in the future.
+//
+// So `write_function_manifest` has implicit knowledge of the layout of this structure
+// (including padding bytes between `code_len` and `traps_addr`)
 #[repr(C)]
 #[derive(Clone, Debug)]
 pub struct FunctionSpec {

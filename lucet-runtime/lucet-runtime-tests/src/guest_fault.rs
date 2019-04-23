@@ -83,13 +83,13 @@ pub fn mock_traps_module() -> Arc<dyn Module> {
         FunctionSpec::new(
             guest_func_illegal_instr as *const extern "C" fn() as u64,
             11,
-            ILLEGAL_INSTR_TRAPS.as_ptr() as *const TrapSite as u64,
+            ILLEGAL_INSTR_TRAPS.as_ptr() as u64,
             ILLEGAL_INSTR_TRAPS.len() as u64,
         ),
         FunctionSpec::new(
             guest_func_oob as *const extern "C" fn() as u64,
             41,
-            OOB_TRAPS.as_ptr() as *const TrapSite as u64,
+            OOB_TRAPS.as_ptr() as u64,
             OOB_TRAPS.len() as u64,
         ),
     ];
