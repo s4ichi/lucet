@@ -1,12 +1,12 @@
 use super::runtime::RuntimeFunc;
 use crate::decls::ModuleDecls;
 use crate::pointer::{NATIVE_POINTER, NATIVE_POINTER_SIZE};
+use crate::traps::trap_sym_for_func;
 use byteorder::{LittleEndian, WriteBytesExt};
 use cranelift_codegen::cursor::FuncCursor;
 use cranelift_codegen::entity::EntityRef;
 use cranelift_codegen::ir::{self, InstBuilder};
 use cranelift_codegen::isa::TargetFrontendConfig;
-use cranelift_faerie::traps::FaerieTrapManifest;
 use cranelift_wasm::{
     FuncEnvironment, FuncIndex, GlobalIndex, GlobalVariable, MemoryIndex, SignatureIndex,
     TableIndex, WasmResult,
@@ -281,9 +281,9 @@ impl<'a> FuncEnvironment for FuncInfo<'a> {
 /// `FaerieTrapManifest` lists.
 ///
 pub fn write_function_manifest(
-    manifest: &FaerieTrapManifest,
+    functions: &[(&str, FunctionSpec)],
     obj: &mut Artifact,
-) -> Result<Vec<FunctionSpec>, Error> {
+) -> Result<(), Error> {
     let manifest_len_sym = "lucet_function_manifest_len";
     obj.declare(&manifest_len_sym, Decl::data().global())
         .context(format!("declaring {}", &manifest_len_sym))?;
@@ -294,16 +294,14 @@ pub fn write_function_manifest(
 
     let mut manifest_len_buf: Vec<u8> = Vec::new();
     manifest_len_buf
-        .write_u32::<LittleEndian>(manifest.sinks.len() as u32)
+        .write_u32::<LittleEndian>(functions.len() as u32)
         .unwrap();
     obj.define(manifest_len_sym, manifest_len_buf)
         .context(format!("defining {}", &manifest_len_sym))?;
 
     let mut manifest_buf: Cursor<Vec<u8>> = Cursor::new(Vec::with_capacity(
-        manifest.sinks.len() * size_of::<FunctionSpec>(),
+        functions.len() * size_of::<FunctionSpec>(),
     ));
-
-    let mut function_manifest: Vec<FunctionSpec> = vec![];
 
     /*
      * !! This is brittle and should be suspect !!
@@ -314,27 +312,47 @@ pub fn write_function_manifest(
      *
      * If `addr` moves in `FunctionSpec`, this will break!
      */
-    for sink in manifest.sinks.iter() {
-        function_manifest.push(FunctionSpec::new(
-            0, // TODO: This is a lie. We don't have function address information at this point.
-            sink.code_size,
-        ));
+    for (fn_name, fn_spec) in functions.iter() {
+        // Writes a (ptr, len) pair with relocation for code
+        write_relocated_slice(
+            obj,
+            &mut manifest_buf,
+            &manifest_sym,
+            fn_name,
+            fn_spec.code_len() as u64,
+        )?;
+        // Writes a (ptr, len) pair with relocation for this function's trap table
+        write_relocated_slice(
+            obj,
+            &mut manifest_buf,
+            &manifest_sym,
+            &trap_sym_for_func(fn_name),
+            fn_spec.traps_len() as u64,
+        )?;
+    }
 
+    fn write_relocated_slice(
+        obj: &mut Artifact,
+        buf: &mut Cursor<Vec<u8>>,
+        from: &str,
+        to: &str,
+        len: u64,
+    ) -> Result<(), Error> {
         obj.link(Link {
-            from: &manifest_sym,
-            to: &sink.name,
-            at: manifest_buf.position(),
+            from, // the data at `from` + `at` (eg. manifest_sym)
+            to,   // is a reference to `to`    (eg. fn_name)
+            at: buf.position(),
         })
-        .context("linking function sym into function manifest")?;
+        .context(format!("linking {} into function manifest", to))?;
 
-        manifest_buf.write_u64::<LittleEndian>(0).unwrap();
-        manifest_buf
-            .write_u64::<LittleEndian>(sink.code_size as u64)
-            .unwrap();
+        buf.write_u64::<LittleEndian>(0).unwrap();
+        buf.write_u64::<LittleEndian>(len).unwrap();
+
+        Ok(())
     }
 
     obj.define(&manifest_sym, manifest_buf.into_inner())
         .context(format!("defining {}", &manifest_sym))?;
 
-    Ok(function_manifest)
+    Ok(())
 }

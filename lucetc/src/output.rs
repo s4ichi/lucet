@@ -4,8 +4,9 @@ use crate::stack_probe;
 use crate::traps::write_trap_tables;
 use cranelift_codegen::{ir, isa};
 use cranelift_faerie::FaerieProduct;
-use faerie::{Artifact, Decl};
+use faerie::Artifact;
 use failure::{format_err, Error, ResultExt};
+use lucet_module_data::FunctionSpec;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
@@ -35,35 +36,6 @@ impl CraneliftFuncs {
     }
 }
 
-fn write_code_metadata(
-    code_metadata: &lucet_module_data::CodeMetadata,
-    output: &mut Artifact,
-) -> Result<(), Error> {
-    use byteorder::LittleEndian;
-    use byteorder::WriteBytesExt;
-    let serialized_metadata = code_metadata.serialize()?;
-
-    let mut metadata_len_buf: Vec<u8> = Vec::new();
-    metadata_len_buf
-        .write_u32::<LittleEndian>(serialized_metadata.len() as u32)
-        .unwrap();
-    output
-        .declare("lucet_code_metadata_len", Decl::data().global())
-        .context("declaring lucet_code_metadata_len")?;
-    output
-        .define("lucet_code_metadata_len", metadata_len_buf)
-        .context("defining lucet_code_metadata_len")?;
-
-    output
-        .declare("lucet_code_metadata", Decl::data().global())
-        .context("declaring lucet_code_metadata")?;
-    output
-        .define("lucet_code_metadata", serialized_metadata)
-        .context("defining lucet_code_metadata")?;
-
-    Ok(())
-}
-
 pub struct ObjectFile {
     artifact: Artifact,
 }
@@ -77,18 +49,38 @@ impl ObjectFile {
         // TODO: at this moment there is no way to get a full list of functions and sizes
         // at this point in compilation.
         //
-        // For now, we need the list of functions with traps, which we can get here, and
-        // reuse that when writing out the trap manifest. When a full function list is
-        // available, `write_function_manifest` should take the function manifest, rather
-        // than compute it
-        let function_manifest = write_function_manifest(trap_manifest, &mut product.artifact)?;
-        let internal_trap_manifest = write_trap_tables(trap_manifest, &mut product.artifact)?;
+        // For now, we need the list of functions with traps, which we can get here.
+        let mut functions_and_names: Vec<(&str, FunctionSpec)> = vec![];
 
-        let code_metadata = lucet_module_data::CodeMetadata {
-            trap_manifest: internal_trap_manifest,
-        };
+        for sink in trap_manifest.sinks.iter() {
+            functions_and_names.push((
+                &sink.name,
+                FunctionSpec::new(0, sink.code_size, 0, sink.sites.len() as u64),
+            ));
+        }
+        //
+        // stack_probe::declare_and_define adds a new function into `product`, but
+        // function_manifest was already constructed from all defined functions -
+        // so we have to add a new entry to `function_manifest` for the stack probe
+        functions_and_names.push((
+            stack_probe::STACK_PROBE_SYM,
+            FunctionSpec::new(
+                0, // there is no real address for the function until written to an object file
+                stack_probe::STACK_PROBE_BINARY.len() as u32,
+                0, // there is no real address for its trap table until written, either
+                trap_manifest
+                    .sinks
+                    .iter()
+                    .find(|sink| sink.name == stack_probe::STACK_PROBE_SYM)
+                    .expect("Stack probe may trap and must have a trap manifest entry")
+                    .sites
+                    .len() as u64,
+            ),
+        ));
 
-        write_code_metadata(&code_metadata, &mut product.artifact)?;
+        write_trap_tables(trap_manifest, &mut product.artifact)?;
+        write_function_manifest(&functions_and_names[..], &mut product.artifact)?;
+
         Ok(Self {
             artifact: product.artifact,
         })

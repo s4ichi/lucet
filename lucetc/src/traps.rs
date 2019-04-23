@@ -3,25 +3,14 @@ use cranelift_faerie::traps::FaerieTrapManifest;
 
 use faerie::{Artifact, Decl};
 use failure::{Error, ResultExt};
-use lucet_module_data::{TrapManifestRecord, TrapSite};
+use lucet_module_data::TrapSite;
 
-pub fn write_trap_tables(
-    manifest: &FaerieTrapManifest,
-    obj: &mut Artifact,
-) -> Result<Vec<TrapManifestRecord>, Error> {
-    let mut trap_manifest: Vec<TrapManifestRecord> = Vec::with_capacity(manifest.sinks.len());
-
-    for (i, sink) in manifest.sinks.iter().enumerate() {
-        trap_manifest.push(TrapManifestRecord {
-            table_addr: 0, // This will be fixed up when loaded
-            table_len: sink.sites.len() as u64,
-            func_index: i as u32,
-        });
-
+pub fn write_trap_tables(manifest: &FaerieTrapManifest, obj: &mut Artifact) -> Result<(), Error> {
+    for sink in manifest.sinks.iter() {
         let func_sym = &sink.name;
         let trap_sym = trap_sym_for_func(func_sym);
 
-        obj.declare(&trap_sym, Decl::data().global())
+        obj.declare(&trap_sym, Decl::data())
             .context(format!("declaring {}", &trap_sym))?;
 
         // write the actual function-level trap table
@@ -46,10 +35,10 @@ pub fn write_trap_tables(
             .context(format!("defining {}", &trap_sym))?;
     }
 
-    Ok(trap_manifest)
+    Ok(())
 }
 
-fn trap_sym_for_func(sym: &str) -> String {
+pub(crate) fn trap_sym_for_func(sym: &str) -> String {
     return format!("lucet_trap_table_{}", sym);
 }
 
