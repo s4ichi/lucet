@@ -409,7 +409,6 @@ dependencies = [
 [[package]]
 name = "faerie"
 version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "env_logger 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -422,6 +421,12 @@ dependencies = [
  "structopt-derive 0.2.15 (registry+https://github.com/rust-lang/crates.io-index)",
  "target-lexicon 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
+
+[[package]]
+name = "faerie"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+replace = "faerie 0.10.0"
 
 [[package]]
 name = "failure"
