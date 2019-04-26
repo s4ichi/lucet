@@ -19,7 +19,7 @@ use cranelift_module::{Backend as ClifBackend, Module as ClifModule};
 use cranelift_native;
 use cranelift_wasm::{translate_module, FuncTranslator, WasmError};
 use failure::{format_err, Fail, ResultExt};
-use lucet_module_data::ModuleData;
+use lucet_module_data::{FunctionSpec, ModuleData};
 
 #[derive(Debug, Clone, Copy)]
 pub enum OptLevel {
@@ -136,7 +136,6 @@ impl<'a> Compiler<'a> {
         write_startfunc_data(&mut self.clif_module, &self.decls)?;
         write_table_data(&mut self.clif_module, &self.decls)?;
 
-        use lucet_module_data::FunctionSpec;
         let function_manifest: Vec<(String, FunctionSpec)> = self
             .clif_module
             .declared_functions()
